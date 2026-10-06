@@ -81,19 +81,22 @@ The run phase lasts exactly as long as the browser start and the benchmark, and 
 4. The run command prints that line and returns, which ends the phase. GMT stores `custom_speedometer_score` for the run phase. Speedometer shows its score with one decimal and GMT takes integers, so the value is the score times 100. An invalid result, or none within 600 s, fails the run.
 5. The browser writes its output into `/tmp/browser.log`, so it does not keep the phase open. The close phase ends it and prints the end of that log.
 
-Checked in GMT on a desktop's `:0` on 2026-10-06:
+Checked in GMT on a desktop's `:0` on 2026-10-06, with the flow above:
 
 | Scenario | Run phase, browser start included | `speedometer_score` |
 | --- | --- | --- |
 | `speedometer2/` Google Chrome | 20.6 s | 49310 |
 | `speedometer2/` Falkon | 33.9 s | 23240 |
-| `speedometer3/` Google Chrome | 23.7 s | 2690 |
-| `speedometer3/` Brave | 26.4 s | 2510 |
-| `speedometer3/` Vivaldi | 31.0 s | 2440 |
-| `speedometer3/` Firefox | 32.8 s | 2130 |
-| `speedometer3/` Ecosia | 35.7 s | 1840 |
-| `speedometer3/` Nyxt | 35.3 s | 1650 |
-| `speedometer3/` Falkon | 42.9 s | 1180 |
+| `speedometer3/` Google Chrome | 23.9 s | 2640 |
+| `speedometer3/` Brave | 26.6 s | 2530 |
+| `speedometer3/` Vivaldi | 31.8 s | 2320 |
+| `speedometer3/` Ecosia | 30.4 s | 2230 |
+| `speedometer3/` Opera | 28.0 s | 2200 |
+| `speedometer3/` Firefox | 32.2 s | 2100 |
+| `speedometer3/` Chromium | 27.4 s | 2090 |
+| `speedometer3/` Microsoft Edge | 27.8 s | 2090 |
+
+Waterfox, Nyxt and Falkon have not run `speedometer3/` in GMT with this flow yet. They finished Speedometer 3.1 in the checks above.
 
 The browser has to start inside the phase that waits for it. GMT pauses between two phases for the sampling interval of its slowest metric provider, 999 ms on the cluster machines. A browser started in a phase of its own, in the background, would spend that pause starting up. That part of the start would then belong to no phase, and how much of it varies from run to run.
 
@@ -171,16 +174,14 @@ The screen must also stay unlocked and switched on for the whole run. On a locke
 
 ## Running on the cluster
 
-Runs are only comparable on the same machine, so pick one and keep it. `submit_software.py` is in `api/` of [gmt-helpers](https://github.com/green-coding-solutions/gmt-helpers).
+Runs are only comparable on the same machine, so pick one and keep it. `submit-cluster.sh` submits the scenarios through `submit_software.py` from `api/` of [gmt-helpers](https://github.com/green-coding-solutions/gmt-helpers). Without `-y` it only prints what it would submit.
 
 ```bash
-python submit_software.py submit \
-  --name "Speedometer 2.1 Chrome" \
-  --repo-url "https://github.com/green-coding-solutions/browser-bench" \
-  --branch main \
-  --filename speedometer2/usage_scenario_chrome.yml \
-  --machine-id 15 \
-  --schedule-mode one-off
+./submit-cluster.sh -y -b chrome speedometer3   # one run first, to see that the machine's display works
+./submit-cluster.sh -y                          # all 33 scenarios on machine 12
+./submit-cluster.sh -y -n 3 -m 15 web-usage     # three runs of every web-usage scenario on machine 15
 ```
 
-The cluster user's `allowed_volume_mounts` contain `/tmp/.X11-unix`, and its `allowed_run_args` contain `--security-opt seccomp=unconfined`. No other `docker-run-args` are used. The machine has to have an X server on `:0` that lets the container in, see [Display](#display).
+The cluster clones the branch from GitHub, so the script refuses to submit while there are uncommitted changes or the current commit is not pushed. With `-n`, the repetitions are submitted round by round, so the runs of one scenario are spread over the batch.
+
+The cluster user's `allowed_volume_mounts` contain `/tmp/.X11-unix`, and its `allowed_run_args` contain `--security-opt seccomp=unconfined`. No other `docker-run-args` are used. The machine has to have an X server on `:0` that lets the container in, see [Display](#display). Its screen must not lock during the runs.
