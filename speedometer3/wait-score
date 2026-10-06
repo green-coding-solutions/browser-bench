@@ -1,0 +1,38 @@
+#!/bin/sh
+# Answers the run phase of the Speedometer 3.1 scenarios.
+#
+# socat starts this for every connection to port 9000, and whatever it prints
+# goes back over that connection. The run phase connects and waits, so it ends
+# when this ends.
+#
+# It waits until the page reports that Speedometer has finished: browser-bench.js
+# requests /bench/done, and nginx logs it. Then it prints the score as the GMT
+# custom metric speedometer_score, timestamped in microseconds when the page
+# reported it. Speedometer shows the score with one decimal and GMT takes
+# integers, so the value is the score times 100. For an invalid result, or no
+# result in time, it prints why, and the run phase fails because the metric
+# line is missing.
+limit=${1:-600}
+log=/var/log/nginx/marks.log
+end=$(( $(date +%s) + limit ))
+while :; do
+    line=$(grep ' /bench/done?' "$log" 2>/dev/null | head -1)
+    if [ -n "$line" ]; then
+        msec=${line%% *}
+        query=${line#*\?}
+        class=$(echo "$query" | sed -n 's/.*class=\([^&]*\).*/\1/p')
+        score=$(echo "$query" | sed -n 's/.*score=\([^&]*\).*/\1/p')
+        echo "Speedometer finished with $score ($class)"
+        if [ "$class" != "valid" ]; then
+            echo "Speedometer reported an invalid result"
+            exit 1
+        fi
+        echo "${msec%.*}${msec#*.}000 speedometer_score=$(echo "$score" | awk '{ printf "%d", $1 * 100 + 0.5 }')"
+        exit 0
+    fi
+    if [ "$(date +%s)" -ge "$end" ]; then
+        echo "Speedometer did not finish within $limit s"
+        exit 1
+    fi
+    sleep 0.2
+done

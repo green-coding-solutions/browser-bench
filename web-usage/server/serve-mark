@@ -1,0 +1,9 @@
+#!/bin/sh
+# Answers a phase that waits on port 9000, the startup phase of the session.
+#
+# socat starts this for every connection to port 9000, and whatever it prints
+# goes back over that connection. The phase sends the name of a mark, waits
+# for the answer and ends with it. This runs wait-mark for that mark, so the
+# answer is "reached <mark>" or the reason it failed.
+read -r name || exit 1
+wait-mark "$name" "${1:-120}" 2>&1

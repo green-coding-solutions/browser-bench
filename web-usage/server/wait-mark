@@ -1,0 +1,29 @@
+#!/bin/sh
+# Wait until the simulated user reports the end of a phase.
+#
+# usage: wait-mark <name> [timeout in seconds]
+#
+# Each GMT phase of the session runs this in the web container. It returns as
+# soon as /mark/<name> shows up in the marker log, so the phase ends when the
+# browser finishes that part of the session. It fails if the simulated user
+# reported an error or the mark does not come in time. A browser that cannot
+# do the session therefore fails the run instead of being measured idle.
+name=$1
+limit=${2:-300}
+log=/var/log/nginx/marks.log
+end=$(( $(date +%s) + limit ))
+while :; do
+    if grep -q " /mark/error" "$log" 2>/dev/null; then
+        echo "simulated user failed: $(grep ' /mark/error' "$log" | tail -1)" >&2
+        exit 1
+    fi
+    if grep -q " /mark/$name\$" "$log" 2>/dev/null; then
+        echo "reached $name"
+        exit 0
+    fi
+    if [ "$(date +%s)" -ge "$end" ]; then
+        echo "no mark $name after $limit s" >&2
+        exit 1
+    fi
+    sleep 0.2
+done

@@ -1,0 +1,138 @@
+---
+name: Speedometer 3.1 - Chromium
+author: Didi Hoffmann
+description: Starts Chromium idle for 60 s, then runs Speedometer 3.1 in it and reports its score
+
+custom_metrics:
+  speedometer_score:
+    unit: Speedometer 3.1 score x 100
+
+services:
+  bench-service:
+    image: ubuntu:26.04
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      DISPLAY: ":0"
+      DEBIAN_FRONTEND: noninteractive
+    shm_size: 4gb
+    setup-commands:
+      - command: echo "tzdata tzdata/Areas select Europe" | debconf-set-selections
+        shell: /bin/bash
+      - command: echo "tzdata tzdata/Zones/Europe select Berlin" | debconf-set-selections
+        shell: /bin/bash
+      - command: apt update
+      - command: apt install -y xxd wget gnupg dbus dbus-x11
+      - command: mkdir -p /run/dbus
+      - command: dbus-daemon --system --fork
+      - command: head -c 16 /dev/urandom | xxd -p > /etc/machine-id
+        shell: /bin/bash
+      # Ubuntu only ships Chromium as a snap. The xtradeb PPA builds it as a deb.
+      # The PPA is added by hand because add-apt-repository needs
+      # software-properties-common, which leaves packagekitd and polkitd
+      # running in the container for the whole measurement.
+      - command: wget -qO- "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x5301FA4FD93244FBC6F6149982BB6851C64F6880" | gpg --dearmor > /usr/share/keyrings/xtradeb-apps.gpg
+        shell: /bin/bash
+      - command: echo "deb [signed-by=/usr/share/keyrings/xtradeb-apps.gpg] https://ppa.launchpadcontent.net/xtradeb/apps/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") main" > /etc/apt/sources.list.d/xtradeb-apps.list
+        shell: /bin/bash
+      - command: apt update
+    networks:
+      - benchmark
+
+  speedometer:
+    image: speedometer-3-1
+    build: .
+    container_name: speedometer
+    networks:
+      - benchmark
+
+flow:
+  - name: install
+    container: bench-service
+    commands:
+      - type: console
+        command: apt install -y chromium
+      - type: console
+        command: dpkg-query -W chromium
+
+  - name: sleep
+    container: bench-service
+    commands:
+      - type: console
+        command: sleep 10
+
+  - name: idle
+    container: bench-service
+    commands:
+      # The browser runs as the unprivileged user ubuntu, uid 1000, because that
+      # uid owns the desktop's X socket on the host. As root, the GPU process of
+      # Chromium-based browsers drops all capabilities, the 0755 socket refuses
+      # it, and the window stays black.
+      # timeout only kills the process it started, and Ubuntu 26.04's timeout
+      # (uutils) does not kill the process group the way GNU timeout did. A
+      # browser whose launcher does not exec it, like Brave's, keeps running.
+      # Only the browser runs as ubuntu, so pkill on that user removes whatever
+      # is left. It runs in the same command because leftovers hold the output
+      # pipe, and Docker would keep the phase open for up to 2 s more.
+      - type: console
+        command: runuser -u ubuntu -- timeout -s SIGKILL 60 chromium --no-sandbox --disable-gpu --no-first-run --no-default-browser-check --disable-sync || true; pkill -KILL -u ubuntu || true
+        shell: /bin/bash
+        ignore-errors: True
+
+  - name: sleep2
+    container: bench-service
+    commands:
+      - type: console
+        command: sleep 10
+
+  # The browser runs as the unprivileged user ubuntu, uid 1000, because that
+  # uid owns the desktop's X socket on the host. As root, the GPU process of
+  # Chromium-based browsers drops all capabilities, the 0755 socket refuses it,
+  # and the window stays black.
+  # The run phase starts the browser in the background and then waits on port
+  # 9000 of the speedometer container, which only answers once Speedometer has
+  # reported its score. So the phase begins before the browser exists and ends
+  # when the benchmark is done, and the score becomes the custom metric
+  # speedometer_score. Without a score the phase fails. The browser writes into
+  # a file, so it does not keep the phase open. close ends it, and the timeout
+  # is only a safety net.
+  - name: run
+    container: bench-service
+    commands:
+      - type: console
+        command: |
+          runuser -u ubuntu -- timeout -s SIGKILL 900 chromium --no-sandbox --disable-gpu --no-first-run --no-default-browser-check --disable-sync http://speedometer:8080?startAutomatically=true > /tmp/browser.log 2>&1 &
+          exec 3<>/dev/tcp/speedometer/9000
+          result=$(cat <&3)
+          echo "$result"
+          grep -q ' speedometer_score=' <<< "$result"
+        shell: /bin/bash
+
+  # Closing the browser the way a user does. Everything that runs as ubuntu
+  # gets SIGTERM, and that is only the browser. What has not exited after 10 s
+  # is killed. The browser's own output follows for the log.
+  - name: close
+    container: bench-service
+    commands:
+      - type: console
+        command: |
+          pkill -TERM -u ubuntu || true
+          for i in $(seq 50); do pgrep -u ubuntu > /dev/null || break; sleep 0.2; done
+          pkill -KILL -u ubuntu || true
+          tail -n 100 /tmp/browser.log || true
+        shell: /bin/bash
+
+  - name: sleep3
+    container: bench-service
+    commands:
+      - type: console
+        command: sleep 10
+
+  - name: uninstall
+    container: bench-service
+    commands:
+      - type: console
+        command: apt purge --auto-remove -y chromium
+
+networks:
+  benchmark:

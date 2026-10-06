@@ -1,0 +1,158 @@
+---
+name: Speedometer 3.1 - Nyxt
+author: Didi Hoffmann
+description: Starts Nyxt idle for 60 s, then runs Speedometer 3.1 in it and reports its score
+
+custom_metrics:
+  speedometer_score:
+    unit: Speedometer 3.1 score x 100
+
+services:
+  bench-service:
+    image: ubuntu:26.04
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      DISPLAY: ":0"
+      DEBIAN_FRONTEND: noninteractive
+    shm_size: 4gb
+    setup-commands:
+      - command: echo "tzdata tzdata/Areas select Europe" | debconf-set-selections
+        shell: /bin/bash
+      - command: echo "tzdata tzdata/Zones/Europe select Berlin" | debconf-set-selections
+        shell: /bin/bash
+      - command: apt update
+      - command: apt install -y xxd wget dbus dbus-x11
+      - command: mkdir -p /run/dbus
+      - command: dbus-daemon --system --fork
+      - command: head -c 16 /dev/urandom | xxd -p > /etc/machine-id
+        shell: /bin/bash
+      # Nyxt puts its sockets under XDG_RUNTIME_DIR and falls back to the
+      # current directory, which is / and not writable for the user ubuntu.
+      # A login session would create this directory, so it is created here.
+      - command: install -d -m 0700 -o ubuntu -g ubuntu /run/user/1000
+    networks:
+      - benchmark
+
+  speedometer:
+    image: speedometer-3-1
+    build: .
+    container_name: speedometer
+    networks:
+      - benchmark
+
+flow:
+  # Nyxt 4 ships as an AppImage that holds the Lisp core and a second AppImage
+  # with its Electron renderer. A container has no FUSE, so both are extracted
+  # once here and Electron is linked in place of the inner AppImage. The
+  # extracted Electron folders are 0700, so they are opened up for the user
+  # ubuntu. libgtk-3-0t64, libnss3, libasound2t64 and libgbm1 pull in every
+  # library Electron and the bundled libenchant need.
+  - name: install
+    container: bench-service
+    commands:
+      - type: console
+        command: apt install -y libgtk-3-0t64 libnss3 libasound2t64 libgbm1
+      - type: console
+        command: wget -nv -O /tmp/nyxt.tar.gz https://github.com/atlas-engineer/nyxt/releases/download/4.0.0/Linux-Nyxt-x86_64.tar.gz && tar -xzf /tmp/nyxt.tar.gz -C /tmp && cd /opt && /tmp/Nyxt-x86_64.AppImage --appimage-extract > /dev/null && mv /opt/squashfs-root /opt/nyxt && rm /tmp/nyxt.tar.gz /tmp/Nyxt-x86_64.AppImage
+        shell: /bin/bash
+      - type: console
+        command: cd /opt/nyxt/usr/bin && ./cl-electron-server --appimage-extract > /dev/null && mv squashfs-root /opt/nyxt/electron && ln -sf /opt/nyxt/electron/cl-electron-server cl-electron-server && chmod -R a+rX /opt/nyxt/electron
+        shell: /bin/bash
+      # The 4.0.0 release reports its ASDF version, which is just "4".
+      - type: console
+        command: runuser -u ubuntu -- env LD_LIBRARY_PATH=/opt/nyxt/usr/lib /opt/nyxt/usr/bin/nyxt --version
+
+  - name: sleep
+    container: bench-service
+    commands:
+      - type: console
+        command: sleep 10
+
+  # The bundled AppRun drops all arguments, so the environment it would set is
+  # passed here and nyxt is started directly. Electron refuses to start without
+  # --no-sandbox, because a container without CAP_SYS_ADMIN cannot set up its
+  # sandbox. Passing --electron-opts replaces the Nyxt default --gtk-version=3,
+  # so that option is repeated. timeout only kills runuser here. The Lisp core
+  # and all Electron processes keep running as ubuntu, so pkill matches on the
+  # user and not on a process name.
+  - name: idle
+    container: bench-service
+    commands:
+      # The browser runs as the unprivileged user ubuntu, uid 1000, because that
+      # uid owns the desktop's X socket on the host. As root, the GPU process of
+      # Chromium-based browsers drops all capabilities, the 0755 socket refuses
+      # it, and the window stays black.
+      # timeout only kills the process it started, and Ubuntu 26.04's timeout
+      # (uutils) does not kill the process group the way GNU timeout did. A
+      # browser whose launcher does not exec it, like Brave's, keeps running.
+      # Only the browser runs as ubuntu, so pkill on that user removes whatever
+      # is left. It runs in the same command because leftovers hold the output
+      # pipe, and Docker would keep the phase open for up to 2 s more.
+      # A killed Nyxt leaves its sockets behind. The next start numbers its
+      # sockets the same way, finds one of them in use and never opens a
+      # window. Removing them lets the run phase start a fresh browser.
+      - type: console
+        command: timeout -s SIGKILL 60 runuser -u ubuntu -- env XDG_RUNTIME_DIR=/run/user/1000 APPDIR=/opt/nyxt LD_LIBRARY_PATH=/opt/nyxt/usr/lib PATH=/opt/nyxt/usr/bin:/usr/bin:/bin /opt/nyxt/usr/bin/nyxt "--electron-opts=--no-sandbox --gtk-version=3" || true; pkill -KILL -u ubuntu || true; rm -rf /run/user/1000/nyxt /run/user/1000/cl-electron
+        shell: /bin/bash
+        ignore-errors: True
+
+  - name: sleep2
+    container: bench-service
+    commands:
+      - type: console
+        command: sleep 10
+
+  # The browser runs as the unprivileged user ubuntu, uid 1000, because that
+  # uid owns the desktop's X socket on the host. As root, the GPU process of
+  # Chromium-based browsers drops all capabilities, the 0755 socket refuses it,
+  # and the window stays black.
+  # The run phase starts the browser in the background and then waits on port
+  # 9000 of the speedometer container, which only answers once Speedometer has
+  # reported its score. So the phase begins before the browser exists and ends
+  # when the benchmark is done, and the score becomes the custom metric
+  # speedometer_score. Without a score the phase fails. The browser writes into
+  # a file, so it does not keep the phase open. close ends it, and the timeout
+  # is only a safety net.
+  - name: run
+    container: bench-service
+    commands:
+      - type: console
+        command: |
+          timeout -s SIGKILL 900 runuser -u ubuntu -- env XDG_RUNTIME_DIR=/run/user/1000 APPDIR=/opt/nyxt LD_LIBRARY_PATH=/opt/nyxt/usr/lib PATH=/opt/nyxt/usr/bin:/usr/bin:/bin /opt/nyxt/usr/bin/nyxt "--electron-opts=--no-sandbox --gtk-version=3" "http://speedometer:8080?startAutomatically=true" > /tmp/browser.log 2>&1 &
+          exec 3<>/dev/tcp/speedometer/9000
+          result=$(cat <&3)
+          echo "$result"
+          grep -q ' speedometer_score=' <<< "$result"
+        shell: /bin/bash
+
+  # Closing the browser the way a user does. Everything that runs as ubuntu
+  # gets SIGTERM, and that is only the browser. What has not exited after 10 s
+  # is killed. The browser's own output follows for the log.
+  - name: close
+    container: bench-service
+    commands:
+      - type: console
+        command: |
+          pkill -TERM -u ubuntu || true
+          for i in $(seq 50); do pgrep -u ubuntu > /dev/null || break; sleep 0.2; done
+          pkill -KILL -u ubuntu || true
+          tail -n 100 /tmp/browser.log || true
+        shell: /bin/bash
+
+  - name: sleep3
+    container: bench-service
+    commands:
+      - type: console
+        command: sleep 10
+
+  - name: uninstall
+    container: bench-service
+    commands:
+      - type: console
+        command: rm -rf /opt/nyxt
+      - type: console
+        command: apt purge --auto-remove -y libgtk-3-0t64 libnss3 libasound2t64 libgbm1
+
+networks:
+  benchmark:

@@ -1,0 +1,99 @@
+/* Shared style of the emulated sites. Ordinary layout work: flex, grid,
+   sticky header, shadows and transitions, as on common sites. */
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; color: #1d2330; background: #f6f7f9; }
+img { max-width: 100%; height: auto; display: block; }
+a { color: #1a56c4; text-decoration: none; }
+a:hover { text-decoration: underline; }
+header.top { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 24px; padding: 12px 32px; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+header.top .logo { font-weight: 700; font-size: 22px; color: #111; }
+header.top nav a { margin-right: 16px; color: #444; }
+footer.bottom { margin-top: 48px; padding: 24px 32px; color: #777; font-size: 13px; border-top: 1px solid #ddd; }
+button { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid #c5cad3; background: #fff; cursor: pointer; transition: background .2s, box-shadow .2s; }
+button:hover { background: #eef2fb; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+
+/* search */
+main.start { max-width: 760px; margin: 12vh auto 0; text-align: center; }
+.logo.big { font-size: 64px; margin: 0 0 24px; }
+#search-form { position: relative; }
+#q { width: 100%; font: inherit; font-size: 18px; padding: 12px 20px; border: 1px solid #c5cad3; border-radius: 24px; box-shadow: 0 1px 6px rgba(32,33,36,.18); }
+header.top.search #search-form { flex: 1; max-width: 640px; }
+#suggestions { list-style: none; margin: 4px 0 0; padding: 0; text-align: left; background: #fff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+#suggestions:empty { display: none; }
+#suggestions li { padding: 8px 20px; }
+.trending .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; text-align: left; }
+.tile { color: #222; font-size: 14px; }
+main.serp { display: grid; grid-template-columns: minmax(0, 680px) 360px; column-gap: 48px; padding: 16px 32px 0 180px; }
+main.serp .stats { grid-column: 1 / -1; margin: 0 0 16px; color: #666; font-size: 14px; }
+main.serp .results { grid-column: 1; }
+main.serp .panel { grid-column: 2; }
+.results { list-style: none; padding: 0; margin: 0; }
+.result { margin: 0 0 28px; }
+.result-link { font-size: 20px; }
+.result cite { display: block; color: #0b6b2c; font-style: normal; font-size: 14px; }
+.answer { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 16px 20px; }
+.answer .big { font-size: 32px; margin: 4px 0; }
+.stories .cards { display: flex; gap: 12px; }
+.story-card { width: 240px; font-size: 14px; color: #222; }
+.panel { border: 1px solid #ddd; border-radius: 8px; padding: 16px; background: #fff; align-self: start; }
+
+/* news and wiki */
+main.news-article { display: grid; grid-template-columns: minmax(0, 760px) 320px; gap: 40px; max-width: 1180px; margin: 0 auto; padding: 24px; }
+main.news-article .comments { grid-column: 1; }
+#story h1 { font: 700 40px/1.2 Georgia, serif; }
+#story p { font: 19px/1.7 Georgia, serif; }
+.lead { font-size: 21px !important; color: #333; }
+.hero { width: 100%; border-radius: 4px; }
+figure { margin: 24px 0; }
+figcaption { color: #666; font-size: 14px; }
+.related-list { list-style: none; padding: 0; }
+.related-list a { display: block; margin-bottom: 16px; color: #222; font-weight: 600; }
+.comments ol { list-style: none; padding: 0; }
+.comments li { padding: 12px 0; border-bottom: 1px solid #e3e3e3; }
+main.front { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px; padding: 24px 32px; }
+.card { background: #fff; border-radius: 6px; overflow: hidden; color: #222; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.card span { display: block; padding: 12px; font-weight: 600; }
+main.wiki { display: grid; grid-template-columns: 240px minmax(0, 860px); gap: 32px; padding: 24px 32px; }
+main.wiki .toc { position: sticky; top: 72px; align-self: start; font-size: 14px; }
+main.wiki table { border-collapse: collapse; margin: 16px 0; }
+main.wiki td, main.wiki th { border: 1px solid #ccc; padding: 4px 12px; }
+.thumb { float: right; width: 320px; margin: 0 0 16px 24px; }
+
+/* shop */
+main.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; padding: 24px 32px; }
+.product-card { background: #fff; border-radius: 8px; padding: 12px; color: #222; box-shadow: 0 1px 3px rgba(0,0,0,.1); transition: transform .2s; }
+.product-card:hover { transform: translateY(-2px); }
+.product-card b { display: block; color: #b12704; }
+main.product { display: grid; grid-template-columns: 560px minmax(0, 1fr); gap: 32px; padding: 24px 32px; }
+.gallery { position: relative; }
+.gallery button { position: absolute; top: 45%; font-size: 28px; }
+#gallery-prev { left: 8px; } #gallery-next { right: 8px; }
+.price { font-size: 28px; color: #b12704; }
+main.product .reviews, main.product .recs { grid-column: 1 / -1; }
+main.product .recs { display: flex; flex-wrap: wrap; gap: 16px; }
+main.product .rec { width: 200px; font-size: 14px; color: #222; }
+
+/* social */
+main.feed { max-width: 600px; margin: 0 auto; padding: 16px 0; }
+.post { background: #fff; border-radius: 10px; margin-bottom: 16px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.post .who { display: flex; align-items: center; gap: 12px; font-weight: 600; }
+.post .who img { width: 48px; height: 48px; border-radius: 50%; }
+.post .pic { margin-top: 12px; border-radius: 8px; width: 100%; aspect-ratio: 1; object-fit: cover; }
+.post .bar { display: flex; gap: 16px; color: #666; font-size: 14px; margin-top: 8px; }
+
+/* mail */
+main.mail { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 0; height: calc(100vh - 58px); }
+#inbox { list-style: none; margin: 0; padding: 0; overflow-y: auto; border-right: 1px solid #ddd; background: #fff; }
+#inbox li { padding: 12px 16px; border-bottom: 1px solid #eee; cursor: pointer; }
+#inbox li.open { background: #e8f0fe; }
+#inbox li b { display: block; }
+#inbox li span { color: #666; font-size: 14px; }
+#reader, #composer { padding: 24px 32px; overflow-y: auto; }
+#composer textarea { width: 100%; font: inherit; }
+
+/* video */
+main.watch { display: grid; grid-template-columns: minmax(0, 1280px) 360px; gap: 24px; padding: 24px; }
+#player { width: 100%; height: auto; background: #000; aspect-ratio: 16 / 9; }
+.credit { font-size: 13px; color: #666; }
+main.watch aside.recs { display: flex; flex-direction: column; gap: 12px; }
+main.watch aside.recs .rec { display: grid; grid-template-columns: 168px 1fr; gap: 8px; font-size: 14px; color: #222; }

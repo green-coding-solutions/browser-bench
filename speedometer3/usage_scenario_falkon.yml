@@ -1,0 +1,142 @@
+---
+name: Speedometer 3.1 - Falkon
+author: Didi Hoffmann
+description: Starts Falkon idle for 60 s, then runs Speedometer 3.1 in it and reports its score
+
+custom_metrics:
+  speedometer_score:
+    unit: Speedometer 3.1 score x 100
+
+services:
+  bench-service:
+    image: ubuntu:26.04
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      DISPLAY: ":0"
+      DEBIAN_FRONTEND: noninteractive
+      # There is no GPU in the container, so Mesa is forced onto the software path.
+      # QT_XCB_GL_INTEGRATION=none from the original scenario is gone on purpose.
+      # Falkon is built on Qt 6 now and its QtWebEngine views need an OpenGL
+      # context, so without GLX the window stays black.
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      MESA_GL_VERSION_OVERRIDE: "3.3"
+    shm_size: 4gb
+    setup-commands:
+      - command: echo "tzdata tzdata/Areas select Europe" | debconf-set-selections
+        shell: /bin/bash
+      - command: echo "tzdata tzdata/Zones/Europe select Berlin" | debconf-set-selections
+        shell: /bin/bash
+      - command: apt update
+      - command: apt install -y xxd dbus dbus-x11
+      - command: mkdir -p /run/dbus
+      - command: dbus-daemon --system --fork
+      - command: head -c 16 /dev/urandom | xxd -p > /etc/machine-id
+        shell: /bin/bash
+      # The postinst of falkon 4:25.12.3-0ubuntu1 still links its Qt 5 dictionary
+      # folder into /usr/share/qt5 and fails when that folder does not exist.
+      # A desktop system usually has it, a bare ubuntu:26.04 image does not.
+      - command: mkdir -p /usr/share/qt5
+    networks:
+      - benchmark
+
+  speedometer:
+    image: speedometer-3-1
+    build: .
+    container_name: speedometer
+    networks:
+      - benchmark
+
+flow:
+  - name: install
+    container: bench-service
+    commands:
+      - type: console
+        command: apt install -y falkon
+      - type: console
+        command: dpkg-query -W falkon
+
+  - name: sleep
+    container: bench-service
+    commands:
+      - type: console
+        command: sleep 10
+
+  # The timeout runs inside runuser, so its SIGKILL hits Falkon itself and not
+  # only runuser. pkill on the user also gets the QtWebEngine helpers and the
+  # session D-Bus that Falkon starts.
+  - name: idle
+    container: bench-service
+    commands:
+      # The browser runs as the unprivileged user ubuntu, uid 1000, because that
+      # uid owns the desktop's X socket on the host. As root, the GPU process of
+      # Chromium-based browsers drops all capabilities, the 0755 socket refuses
+      # it, and the window stays black.
+      # timeout only kills the process it started, and Ubuntu 26.04's timeout
+      # (uutils) does not kill the process group the way GNU timeout did. A
+      # browser whose launcher does not exec it, like Brave's, keeps running.
+      # Only the browser runs as ubuntu, so pkill on that user removes whatever
+      # is left. It runs in the same command because leftovers hold the output
+      # pipe, and Docker would keep the phase open for up to 2 s more.
+      - type: console
+        command: runuser -u ubuntu -- timeout -s SIGKILL 60 falkon || true; pkill -KILL -u ubuntu || true
+        shell: /bin/bash
+        ignore-errors: True
+
+  - name: sleep2
+    container: bench-service
+    commands:
+      - type: console
+        command: sleep 10
+
+  # The browser runs as the unprivileged user ubuntu, uid 1000, because that
+  # uid owns the desktop's X socket on the host. As root, the GPU process of
+  # Chromium-based browsers drops all capabilities, the 0755 socket refuses it,
+  # and the window stays black.
+  # The run phase starts the browser in the background and then waits on port
+  # 9000 of the speedometer container, which only answers once Speedometer has
+  # reported its score. So the phase begins before the browser exists and ends
+  # when the benchmark is done, and the score becomes the custom metric
+  # speedometer_score. Without a score the phase fails. The browser writes into
+  # a file, so it does not keep the phase open. close ends it, and the timeout
+  # is only a safety net.
+  - name: run
+    container: bench-service
+    commands:
+      - type: console
+        command: |
+          runuser -u ubuntu -- timeout -s SIGKILL 900 falkon http://speedometer:8080?startAutomatically=true > /tmp/browser.log 2>&1 &
+          exec 3<>/dev/tcp/speedometer/9000
+          result=$(cat <&3)
+          echo "$result"
+          grep -q ' speedometer_score=' <<< "$result"
+        shell: /bin/bash
+
+  # Closing the browser the way a user does. Everything that runs as ubuntu
+  # gets SIGTERM, and that is only the browser. What has not exited after 10 s
+  # is killed. The browser's own output follows for the log.
+  - name: close
+    container: bench-service
+    commands:
+      - type: console
+        command: |
+          pkill -TERM -u ubuntu || true
+          for i in $(seq 50); do pgrep -u ubuntu > /dev/null || break; sleep 0.2; done
+          pkill -KILL -u ubuntu || true
+          tail -n 100 /tmp/browser.log || true
+        shell: /bin/bash
+
+  - name: sleep3
+    container: bench-service
+    commands:
+      - type: console
+        command: sleep 10
+
+  - name: uninstall
+    container: bench-service
+    commands:
+      - type: console
+        command: apt purge --auto-remove -y falkon
+
+networks:
+  benchmark:
